@@ -237,7 +237,13 @@ def generate_sar_pdf(cluster, explanation):
     pdf.cell(200, 10, txt="Identified Member Accounts:", ln=True)
     pdf.set_font("Helvetica", size=10)
     for node_id, data in cluster['subgraph'].nodes(data=True):
-        pdf.multi_cell(0, 6, txt=f"- ID: {node_id} | Name: {data.get('name')} | Email: {data.get('email')}")
+        # Sanitize to ascii to avoid FPDF core font unicode errors, and truncate UUID
+        safe_name = str(data.get('name', 'Unknown')).encode('ascii', 'ignore').decode()
+        safe_email = str(data.get('email', 'Unknown')).encode('ascii', 'ignore').decode()
+        short_id = str(node_id)[:8]
+        line = f"- ID: {short_id}... | Name: {safe_name} | Email: {safe_email}"
+        pdf.write(6, line)
+        pdf.ln(6)
     pdf.ln(5)
     
     # AI Explanation
@@ -251,10 +257,12 @@ def generate_sar_pdf(cluster, explanation):
             pdf.cell(200, 8, txt=f"{k.replace('_', ' ').title()}:", ln=True)
             pdf.set_font("Helvetica", size=10)
             val_str = ", ".join(v) if isinstance(v, list) else str(v)
+            val_str = val_str.encode('ascii', 'ignore').decode().replace('\n', ' ')
             pdf.multi_cell(0, 6, txt=val_str)
             pdf.ln(2)
     except:
-        pdf.multi_cell(0, 6, txt=str(explanation))
+        safe_exp = str(explanation).encode('ascii', 'ignore').decode().replace('\n', ' ')
+        pdf.multi_cell(0, 6, txt=safe_exp)
         
     return bytes(pdf.output())
 
