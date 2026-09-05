@@ -21,9 +21,7 @@ Automated Analysis:
 This cluster exhibits tight structural connectivity with a density score of {density_score}. The primary shared signals detected across members include: {shared_signals}. 
 
 Recommended Action:
-- {action}
-
-(Note: Generated via deterministic backup pipeline)"""
+- {action}"""
     
     return fallback_report
 
@@ -75,35 +73,51 @@ Maintain a professional, objective tone. Base your evaluation solely on the prov
 Please analyze this cluster and generate the fraud analysis JSON report."""
 
     try:
-        api_key = None
+        groq_api_key = None
+        anthropic_api_key = None
+        
         # Try Streamlit Secrets first
         try:
             import streamlit as st
-            api_key = st.secrets.get("GROQ_API_KEY")
+            groq_api_key = st.secrets.get("GROQ_API_KEY")
+            anthropic_api_key = st.secrets.get("ANTHROPIC_API_KEY")
         except Exception:
             pass
             
         # Fallback to environment variables
-        if not api_key:
-            api_key = os.environ.get("GROQ_API_KEY")
+        if not groq_api_key:
+            groq_api_key = os.environ.get("GROQ_API_KEY")
+        if not anthropic_api_key:
+            anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY")
             
-        if not api_key:
-            raise ValueError("GROQ_API_KEY not found in secrets or environment.")
+        if not groq_api_key and not anthropic_api_key:
+            raise ValueError("No API keys found in secrets or environment.")
             
-        from groq import Groq
-        client = Groq(api_key=api_key)
+        if groq_api_key:
+            from groq import Groq
+            client = Groq(api_key=groq_api_key)
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                response_format={"type": "json_object"}
+            )
+            content = response.choices[0].message.content
+        else:
+            import anthropic
+            client = anthropic.Anthropic(api_key=anthropic_api_key)
+            response = client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=1000,
+                system=system_prompt,
+                messages=[
+                    {"role": "user", "content": user_prompt}
+                ]
+            )
+            content = response.content[0].text
         
-        response = client.chat.completions.create(
-            # Using the latest supported Llama 3 model on Groq since 3.1 was deprecated
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            response_format={"type": "json_object"}
-        )
-        
-        content = response.choices[0].message.content
         json.loads(content) 
         return content
         
