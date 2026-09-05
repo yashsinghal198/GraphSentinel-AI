@@ -75,6 +75,9 @@ weight_ip = st.sidebar.slider("IP Subnet", 0.0, 5.0, 1.0, step=0.5)
 st.sidebar.header("Detection Thresholds")
 auto_flag_threshold = st.sidebar.slider("Auto-Flag Density", 1.0, 5.0, 2.5, step=0.1)
 
+st.sidebar.header("Adversarial Stress Test")
+simulate_evasion = st.sidebar.toggle("🥷 Simulate Ring Evasion", value=False, help="Simulate a sophisticated attack where fraudsters actively scramble their IP subnets and Device IDs to evade detection.")
+
 re_run_clicked = st.sidebar.button("🚀 Re-run Detection Engine", use_container_width=True)
 
 signal_weights = {
@@ -93,6 +96,21 @@ def load_dataset():
     return generate_dataset(seed=42)
 
 df = load_dataset()
+
+# Apply Adversarial Evasion
+if simulate_evasion:
+    import random
+    import uuid
+    # Create a copy so we don't mutate the cached dataframe
+    df = df.copy()
+    ring_indices = df[df['is_ring_member'] == True].index.tolist()
+    
+    # Scramble ~40% of the true fraudsters
+    random.seed(42)
+    evaders = random.sample(ring_indices, int(len(ring_indices) * 0.4))
+    for idx in evaders:
+        df.at[idx, 'ip_subnet'] = f"192.168.{random.randint(0,255)}.{random.randint(0,255)}"
+        df.at[idx, 'device_id'] = str(uuid.uuid4())
 
 # Run Graph Building
 G = build_signal_graph(df, signal_weights=signal_weights)
