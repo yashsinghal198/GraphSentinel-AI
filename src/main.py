@@ -15,7 +15,7 @@ def generate_html_dashboard(metrics, clusters):
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Abuse-Ring Sentinel | Dashboard</title>
+        <title>GraphSentinel AI | Dashboard</title>
         <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
         <style>
             :root {{
@@ -175,7 +175,7 @@ def generate_html_dashboard(metrics, clusters):
     </head>
     <body>
         <div class="header">
-            <h1>Abuse-Ring Sentinel</h1>
+            <h1>GraphSentinel AI</h1>
             <div class="subtitle">AI-Powered Graph Network Analysis Dashboard</div>
         </div>
         

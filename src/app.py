@@ -12,7 +12,7 @@ from explanation_layer import explain_cluster
 from evaluation import evaluate_performance
 
 # Configuration
-st.set_page_config(page_title="Abuse-Ring Sentinel", layout="wide", page_icon="🛡️")
+st.set_page_config(page_title="GraphSentinel AI", layout="wide", page_icon="🛡️")
 
 # Initialize Session State for Human Overrides
 if 'human_overrides' not in st.session_state:
@@ -49,7 +49,7 @@ st.markdown("""
 # ---------------------------------------------------------------------
 # Sidebar Configuration
 # ---------------------------------------------------------------------
-st.sidebar.title("🛡️ Abuse-Ring Sentinel")
+st.sidebar.title("🛡️ GraphSentinel AI")
 st.sidebar.markdown("Live Simulation Controls")
 
 st.sidebar.header("Signal Weights")

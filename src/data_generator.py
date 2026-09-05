@@ -4,7 +4,7 @@ from faker import Faker
 
 def generate_dataset(seed=42):
     """
-    Generates synthetic customer data for the Abuse-Ring Sentinel system.
+    Generates synthetic customer data for the GraphSentinel AI system.
     Returns a pandas DataFrame containing 432 records.
     """
     Faker.seed(seed)
