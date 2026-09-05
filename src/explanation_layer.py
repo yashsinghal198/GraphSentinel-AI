@@ -1,6 +1,5 @@
 import os
 import json
-import anthropic
 from typing import Dict, Any
 
 def get_template_explanation(cluster: Dict[str, Any], error_msg: str) -> str:
