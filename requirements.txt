@@ -1,0 +1,6 @@
+networkx
+faker
+pandas
+groq
+streamlit
+pyvis
