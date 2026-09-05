@@ -75,9 +75,20 @@ Maintain a professional, objective tone. Base your evaluation solely on the prov
 Please analyze this cluster and generate the fraud analysis JSON report."""
 
     try:
-        api_key = os.environ.get("GROQ_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+        api_key = None
+        # Try Streamlit Secrets first
+        try:
+            import streamlit as st
+            api_key = st.secrets.get("GROQ_API_KEY")
+        except Exception:
+            pass
+            
+        # Fallback to environment variables
         if not api_key:
-            raise ValueError("GROQ_API_KEY not found in environment.")
+            api_key = os.environ.get("GROQ_API_KEY")
+            
+        if not api_key:
+            raise ValueError("GROQ_API_KEY not found in secrets or environment.")
             
         from groq import Groq
         client = Groq(api_key=api_key)
