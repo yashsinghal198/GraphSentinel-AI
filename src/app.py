@@ -4,6 +4,7 @@ import json
 from pyvis.network import Network
 import streamlit.components.v1 as components
 import io
+import datetime
 from fpdf import FPDF
 
 # Import backend modules
@@ -16,9 +17,20 @@ from evaluation import evaluate_performance
 # Configuration
 st.set_page_config(page_title="GraphSentinel AI", layout="wide", page_icon="🛡️")
 
-# Initialize Session State for Human Overrides
+# Initialize Session State for Human Overrides & Audit Log
 if 'human_overrides' not in st.session_state:
     st.session_state.human_overrides = {}
+if 'audit_log' not in st.session_state:
+    st.session_state.audit_log = []
+
+def log_action(cluster_id, action, density, signals):
+    st.session_state.audit_log.append({
+        "Timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Cluster ID": cluster_id,
+        "Action Taken": action,
+        "Density": density,
+        "Shared Signals": ", ".join(signals)
+    })
 
 # Custom CSS for glassmorphism and modern UI elements
 st.markdown("""
@@ -197,10 +209,12 @@ else:
             with col2:
                 if st.button("✅ Confirm Fraud", key=f"confirm_{c['cluster_id']}", use_container_width=True):
                     st.session_state.human_overrides[c['cluster_id']] = "HIGH_CONFIDENCE"
+                    log_action(c['cluster_id'], "CONFIRMED FRAUD", c['density_score'], c['shared_signals'])
                     st.rerun()
             with col3:
                 if st.button("❌ Dismiss (FP)", key=f"dismiss_{c['cluster_id']}", use_container_width=True):
                     st.session_state.human_overrides[c['cluster_id']] = "LOW_RISK"
+                    log_action(c['cluster_id'], "DISMISSED (FP)", c['density_score'], c['shared_signals'])
                     st.rerun()
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -330,6 +344,7 @@ else:
                 if selected_cluster['confidence_tier'] != "HIGH_CONFIDENCE":
                     if st.button(f"🚫 Confirm Block ({selected_cluster['cluster_size']} accounts)", type="primary", use_container_width=True, key="block_deepdive"):
                         st.session_state.human_overrides[selected_cluster_id] = "HIGH_CONFIDENCE"
+                        log_action(selected_cluster_id, "CONFIRMED FRAUD", selected_cluster['density_score'], selected_cluster['shared_signals'])
                         st.rerun()
                 else:
                     pdf_bytes = generate_sar_pdf(selected_cluster, selected_cluster['explanation'])
@@ -346,4 +361,34 @@ else:
                 if selected_cluster['confidence_tier'] != "LOW_RISK":
                     if st.button("✅ Dismiss Flag (Mark False Positive)", use_container_width=True):
                         st.session_state.human_overrides[selected_cluster_id] = "LOW_RISK"
+                        log_action(selected_cluster_id, "DISMISSED (FP)", selected_cluster['density_score'], selected_cluster['shared_signals'])
                         st.rerun()
+                else:
+                    json_bundle = {
+                        "cluster_id": selected_cluster['cluster_id'],
+                        "size": selected_cluster['cluster_size'],
+                        "density_score": selected_cluster['density_score'],
+                        "shared_signals": selected_cluster['shared_signals'],
+                        "members": [
+                            {"node_id": str(n), "name": str(d.get('name')), "email": str(d.get('email'))} 
+                            for n, d in selected_cluster['subgraph'].nodes(data=True)
+                        ],
+                        "ai_rationale": selected_cluster['explanation']
+                    }
+                    st.download_button(
+                        label="📦 Download Evidence Bundle (.JSON)",
+                        data=json.dumps(json_bundle, indent=2),
+                        file_name=f"Evidence_{selected_cluster_id}.json",
+                        mime="application/json",
+                        use_container_width=True
+                    )
+
+# ---------------------------------------------------------------------
+# UI Layout: Analyst Audit History
+# ---------------------------------------------------------------------
+st.markdown("---")
+with st.expander("📋 Analyst Audit History", expanded=False):
+    if len(st.session_state.audit_log) == 0:
+        st.info("No actions taken yet during this session.")
+    else:
+        st.dataframe(pd.DataFrame(st.session_state.audit_log), use_container_width=True)
