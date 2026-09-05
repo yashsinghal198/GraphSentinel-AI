@@ -3,6 +3,8 @@ import pandas as pd
 import json
 from pyvis.network import Network
 import streamlit.components.v1 as components
+import io
+from fpdf import FPDF
 
 # Import backend modules
 from data_generator import generate_dataset
@@ -94,6 +96,23 @@ for c in clusters:
 
 # Evaluate Performance
 metrics = evaluate_performance(clusters, df)
+
+# ---------------------------------------------------------------------
+# Sidebar: What-If Business Impact Calculator
+# ---------------------------------------------------------------------
+st.sidebar.markdown("---")
+st.sidebar.subheader("What-If Business Impact")
+st.sidebar.markdown("<small>Estimated Rupee trade-off at current threshold</small>", unsafe_allow_html=True)
+
+fraud_savings = metrics['recall'] * 39 * 25000  # Assume 39 real frauds, avg ₹25,000 saved per caught ring member
+review_cost = metrics['false_positive_cost_inr']
+net_impact = fraud_savings - review_cost
+
+st.sidebar.markdown(f"**Fraud Blocked Savings:** <span style='color:#4ade80'>+₹{fraud_savings:,.0f}</span>", unsafe_allow_html=True)
+st.sidebar.markdown(f"**Manual Review Cost:** <span style='color:#f87171'>-₹{review_cost:,.0f}</span>", unsafe_allow_html=True)
+
+color = "#4ade80" if net_impact >= 0 else "#f87171"
+st.sidebar.markdown(f"**Net Business Impact:** <span style='color:{color}'>₹{net_impact:,.0f}</span>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------
 # UI Layout: Header and Metrics
@@ -188,6 +207,57 @@ else:
 # ---------------------------------------------------------------------
 # UI Layout: Cluster Investigation Table & Modals
 # ---------------------------------------------------------------------
+def generate_sar_pdf(cluster, explanation):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", size=12)
+    
+    # Header
+    pdf.set_font("Helvetica", style="B", size=16)
+    pdf.cell(200, 10, txt="Suspicious Activity Report (SAR)", ln=True, align="C")
+    pdf.ln(5)
+    
+    # Cluster Details
+    pdf.set_font("Helvetica", style="B", size=12)
+    pdf.cell(200, 10, txt=f"Cluster ID: {cluster['cluster_id']}", ln=True)
+    pdf.set_font("Helvetica", size=12)
+    pdf.cell(200, 8, txt=f"Assigned Risk Tier: {cluster['confidence_tier']}", ln=True)
+    pdf.cell(200, 8, txt=f"Density Score: {cluster['density_score']} (Accounts: {cluster['cluster_size']})", ln=True)
+    pdf.ln(5)
+    
+    # Shared Signals
+    pdf.set_font("Helvetica", style="B", size=12)
+    pdf.cell(200, 10, txt="Shared Infrastructure / Attributes:", ln=True)
+    pdf.set_font("Helvetica", size=12)
+    pdf.multi_cell(0, 8, txt=", ".join(cluster['shared_signals']))
+    pdf.ln(5)
+    
+    # Member Accounts
+    pdf.set_font("Helvetica", style="B", size=12)
+    pdf.cell(200, 10, txt="Identified Member Accounts:", ln=True)
+    pdf.set_font("Helvetica", size=10)
+    for node_id, data in cluster['subgraph'].nodes(data=True):
+        pdf.multi_cell(0, 6, txt=f"- ID: {node_id} | Name: {data.get('name')} | Email: {data.get('email')}")
+    pdf.ln(5)
+    
+    # AI Explanation
+    pdf.set_font("Helvetica", style="B", size=12)
+    pdf.cell(200, 10, txt="AI Analyst Rationale:", ln=True)
+    pdf.set_font("Helvetica", size=10)
+    try:
+        exp_data = json.loads(explanation)
+        for k, v in exp_data.items():
+            pdf.set_font("Helvetica", style="B", size=10)
+            pdf.cell(200, 8, txt=f"{k.replace('_', ' ').title()}:", ln=True)
+            pdf.set_font("Helvetica", size=10)
+            val_str = ", ".join(v) if isinstance(v, list) else str(v)
+            pdf.multi_cell(0, 6, txt=val_str)
+            pdf.ln(2)
+    except:
+        pdf.multi_cell(0, 6, txt=str(explanation))
+        
+    return bytes(pdf.output())
+
 st.subheader("All Detected Clusters Database")
 
 if len(clusters) == 0:
@@ -244,7 +314,28 @@ else:
                     st.info(selected_cluster['explanation'])
                     
             st.divider()
-            if selected_cluster['confidence_tier'] != "HIGH_CONFIDENCE":
-                if st.button(f"🚫 Confirm Block ({selected_cluster['cluster_size']} accounts)", type="primary", use_container_width=True, key="block_deepdive"):
-                    st.session_state.human_overrides[selected_cluster_id] = "HIGH_CONFIDENCE"
-                    st.rerun()
+            
+            # Action Buttons & PDF Download
+            action_cols = st.columns(2)
+            
+            with action_cols[0]:
+                if selected_cluster['confidence_tier'] != "HIGH_CONFIDENCE":
+                    if st.button(f"🚫 Confirm Block ({selected_cluster['cluster_size']} accounts)", type="primary", use_container_width=True, key="block_deepdive"):
+                        st.session_state.human_overrides[selected_cluster_id] = "HIGH_CONFIDENCE"
+                        st.rerun()
+                else:
+                    pdf_bytes = generate_sar_pdf(selected_cluster, selected_cluster['explanation'])
+                    st.download_button(
+                        label="📄 Download Suspicious Activity Report (PDF)",
+                        data=pdf_bytes,
+                        file_name=f"SAR_{selected_cluster_id}.pdf",
+                        mime="application/pdf",
+                        type="primary",
+                        use_container_width=True
+                    )
+            
+            with action_cols[1]:
+                if selected_cluster['confidence_tier'] != "LOW_RISK":
+                    if st.button("✅ Dismiss Flag (Mark False Positive)", use_container_width=True):
+                        st.session_state.human_overrides[selected_cluster_id] = "LOW_RISK"
+                        st.rerun()

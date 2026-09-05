@@ -5,3 +5,4 @@ groq
 streamlit
 pyvis
 anthropic
+fpdf2
