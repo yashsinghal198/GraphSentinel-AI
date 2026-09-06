@@ -1,14 +1,16 @@
 import streamlit as st
 import pandas as pd
 import json
+import numpy as np
 from pyvis.network import Network
 import streamlit.components.v1 as components
 import io
 import datetime
 from fpdf import FPDF
+import plotly.graph_objects as go
 
 # Import backend modules
-from data_generator import generate_dataset
+from data_generator import generate_dataset, generate_batch
 from graph_builder import build_signal_graph
 from cluster_scorer import score_clusters
 from explanation_layer import explain_cluster
@@ -24,6 +26,10 @@ if 'audit_log' not in st.session_state:
     st.session_state.audit_log = []
 if 'explanations' not in st.session_state:
     st.session_state.explanations = {}
+if 'signal_denylist' not in st.session_state:
+    st.session_state.signal_denylist = set()
+if 'batch_results' not in st.session_state:
+    st.session_state.batch_results = None
 
 def log_action(cluster_id, action, density, signals):
     st.session_state.audit_log.append({
@@ -177,6 +183,58 @@ for col, (label, value, is_cost) in zip(cols, metric_data):
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------
+# Feature 1: Threshold Sensitivity Analysis
+# ---------------------------------------------------------------------
+with st.expander("📈 Threshold Sensitivity Analysis", expanded=False):
+    
+    @st.cache_data
+    def sweep_thresholds(_G, _df, _signal_weights_tuple):
+        """Sweep thresholds and compute metrics. Cached on signal weights."""
+        thresholds = np.arange(1.0, 5.1, 0.2)
+        results = []
+        ring_count = int(_df['is_ring_member'].sum())
+        for t in thresholds:
+            c = score_clusters(_G, auto_flag_threshold=t)
+            m = evaluate_performance(c, _df)
+            savings = m['recall'] * ring_count * 25000
+            cost = m['false_positive_cost_inr']
+            results.append({
+                'threshold': round(t, 1),
+                'precision': m['precision'],
+                'recall': m['recall'],
+                'f1': m['f1_score'],
+                'net_impact': savings - cost
+            })
+        return results
+    
+    # Hashable key for cache
+    weights_tuple = tuple(sorted(signal_weights.items()))
+    sweep_data = sweep_thresholds(G, df, weights_tuple)
+    sweep_df = pd.DataFrame(sweep_data)
+    
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=sweep_df['threshold'], y=sweep_df['precision'], name='Precision', line=dict(color='#38bdf8')))
+    fig.add_trace(go.Scatter(x=sweep_df['threshold'], y=sweep_df['recall'], name='Recall', line=dict(color='#4ade80')))
+    fig.add_trace(go.Scatter(x=sweep_df['threshold'], y=sweep_df['f1'], name='F1 Score', line=dict(color='#facc15')))
+    fig.add_vline(x=auto_flag_threshold, line_dash="dash", line_color="#f87171", annotation_text=f"Current: {auto_flag_threshold}")
+    fig.update_layout(
+        title="Performance Metrics vs. Auto-Flag Threshold",
+        xaxis_title="Density Threshold", yaxis_title="Score (0-1)",
+        template="plotly_dark", height=350,
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+        legend=dict(orientation="h", yanchor="bottom", y=1.02)
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Optimal threshold
+    optimal = max(sweep_data, key=lambda x: x['net_impact'])
+    current_impact = next((r['net_impact'] for r in sweep_data if abs(r['threshold'] - auto_flag_threshold) < 0.15), net_impact)
+    
+    opt_col1, opt_col2 = st.columns(2)
+    opt_col1.metric("Optimal Threshold", f"{optimal['threshold']}", f"Net Impact: ₹{optimal['net_impact']:,.0f}")
+    opt_col2.metric("Your Current Threshold", f"{auto_flag_threshold}", f"Net Impact: ₹{current_impact:,.0f}")
+
+# ---------------------------------------------------------------------
 # UI Layout: Network Graph Visualization (Pyvis)
 # ---------------------------------------------------------------------
 st.subheader("Network Topology")
@@ -185,20 +243,26 @@ def render_pyvis_graph(G, clusters):
     # Initialize Pyvis network (Dark Mode)
     net = Network(height="500px", width="100%", bgcolor="#0f172a", font_color="white")
     
-    # Map nodes to colors based on cluster tiers
+    # Map nodes to colors and sizes based on cluster tiers and hub status
     node_colors = {}
+    hub_nodes = set()
     for c in clusters:
         tier = c['confidence_tier']
-        # Red for HIGH_CONFIDENCE, Yellow for REVIEW
         color = "#f87171" if tier == "HIGH_CONFIDENCE" else "#facc15" if tier == "REVIEW" else "#3b82f6"
         for node_id in c['node_ids']:
             node_colors[node_id] = color
+        if 'hub_node_id' in c:
+            hub_nodes.add(c['hub_node_id'])
             
     # Add nodes
     for node_id, data in G.nodes(data=True):
-        # Nodes not in any flagged cluster are Blue for Independent Accounts
-        color = node_colors.get(node_id, "#3b82f6") 
-        net.add_node(node_id, label=str(node_id), title=f"Name: {data.get('name')}\\nEmail: {data.get('email')}", color=color)
+        color = node_colors.get(node_id, "#3b82f6")
+        is_hub = node_id in hub_nodes
+        size = 25 if is_hub else 12
+        border_color = "#ffffff" if is_hub else color
+        label = "🎯" if is_hub else ""
+        title = f"{'🎯 RING HUB\\n' if is_hub else ''}Name: {data.get('name')}\\nEmail: {data.get('email')}"
+        net.add_node(node_id, label=label, title=title, color={'background': color, 'border': border_color}, size=size, borderWidth=3 if is_hub else 1)
         
     # Add edges
     for u, v, data in G.edges(data=True):
@@ -235,6 +299,11 @@ else:
                 if st.button("✅ Confirm Fraud", key=f"confirm_{c['cluster_id']}", use_container_width=True):
                     st.session_state.human_overrides[c['cluster_id']] = "HIGH_CONFIDENCE"
                     log_action(c['cluster_id'], "CONFIRMED FRAUD", c['density_score'], c['shared_signals'])
+                    # Add signals to denylist for continuous learning
+                    for n, d in c['subgraph'].nodes(data=True):
+                        for sig_type in ['device_id', 'card_fingerprint', 'shipping_address', 'ip_subnet']:
+                            if d.get(sig_type):
+                                st.session_state.signal_denylist.add((sig_type, d[sig_type]))
                     st.rerun()
             with col3:
                 if st.button("❌ Dismiss (FP)", key=f"dismiss_{c['cluster_id']}", use_container_width=True):
@@ -336,8 +405,10 @@ else:
             with col1:
                 st.markdown("**Member Accounts**")
                 subgraph = selected_cluster['subgraph']
+                hub_id = selected_cluster.get('hub_node_id')
                 for node_id, data in subgraph.nodes(data=True):
-                    st.markdown(f"- `{node_id}`: {data.get('name')} | {data.get('email')}")
+                    prefix = "🎯 **(Ring Hub)** " if node_id == hub_id else ""
+                    st.markdown(f"- {prefix}`{node_id}`: {data.get('name')} | {data.get('email')}")
                 
                 st.markdown("**Shared Infrastructure**")
                 for sig in selected_cluster['shared_signals']:
@@ -371,6 +442,11 @@ else:
                     if st.button(f"🚫 Confirm Block ({selected_cluster['cluster_size']} accounts)", type="primary", use_container_width=True, key="block_deepdive"):
                         st.session_state.human_overrides[selected_cluster_id] = "HIGH_CONFIDENCE"
                         log_action(selected_cluster_id, "CONFIRMED FRAUD", selected_cluster['density_score'], selected_cluster['shared_signals'])
+                        # Add signals to denylist for continuous learning
+                        for n, d in selected_cluster['subgraph'].nodes(data=True):
+                            for sig_type in ['device_id', 'card_fingerprint', 'shipping_address', 'ip_subnet']:
+                                if d.get(sig_type):
+                                    st.session_state.signal_denylist.add((sig_type, d[sig_type]))
                         st.rerun()
                 else:
                     pdf_bytes = generate_sar_pdf(selected_cluster, selected_cluster['explanation'])
@@ -394,6 +470,7 @@ else:
                         "cluster_id": selected_cluster['cluster_id'],
                         "size": selected_cluster['cluster_size'],
                         "density_score": selected_cluster['density_score'],
+                        "hub_account": selected_cluster.get('hub_node_id', 'N/A'),
                         "shared_signals": selected_cluster['shared_signals'],
                         "members": [
                             {"node_id": str(n), "name": str(d.get('name')), "email": str(d.get('email'))} 
@@ -418,3 +495,59 @@ with st.expander("📋 Analyst Audit History", expanded=False):
         st.info("No actions taken yet during this session.")
     else:
         st.dataframe(pd.DataFrame(st.session_state.audit_log), use_container_width=True)
+
+# ---------------------------------------------------------------------
+# Feature 3: Continuous Learning Loop
+# ---------------------------------------------------------------------
+st.markdown("---")
+st.subheader("🔁 Continuous Learning Simulation")
+
+denylist_size = len(st.session_state.signal_denylist)
+st.markdown(f"**Learned Signals in Denylist:** `{denylist_size}` {'(Confirm fraud clusters above to build the denylist)' if denylist_size == 0 else ''}")
+
+if st.button("🔁 Simulate Next Batch (50 new accounts)", use_container_width=True, disabled=(denylist_size == 0)):
+    batch_seed = len(st.session_state.audit_log) + 100
+    new_batch_df, matches = generate_batch(
+        batch_size=50,
+        signal_denylist=st.session_state.signal_denylist,
+        seed=batch_seed
+    )
+    
+    # Check each account against the denylist
+    instant_blocks = []
+    remaining = []
+    for _, row in new_batch_df.iterrows():
+        matched = False
+        for sig_type in ['device_id', 'card_fingerprint', 'shipping_address', 'ip_subnet']:
+            if (sig_type, row[sig_type]) in st.session_state.signal_denylist:
+                instant_blocks.append({
+                    'customer_id': row['customer_id'],
+                    'name': row['name'],
+                    'matched_signal': f"{sig_type}: {str(row[sig_type])[:20]}...",
+                    'status': '⚡ INSTANT_BLOCK'
+                })
+                matched = True
+                break
+        if not matched:
+            remaining.append(row)
+    
+    st.session_state.batch_results = {
+        'instant_blocks': instant_blocks,
+        'remaining_count': len(remaining),
+        'total': len(new_batch_df)
+    }
+    st.rerun()
+
+if st.session_state.batch_results:
+    br = st.session_state.batch_results
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("⚡ Instantly Blocked", f"{len(br['instant_blocks'])} accounts", "via learned denylist")
+    col2.metric("🔍 Sent to Graph Analysis", f"{br['remaining_count']} accounts", "new patterns")
+    col3.metric("📊 Total Batch", f"{br['total']} accounts")
+    
+    if br['instant_blocks']:
+        st.markdown("#### ⚡ Instant Blocks (Denylist Match)")
+        st.dataframe(pd.DataFrame(br['instant_blocks']), use_container_width=True)
+    
+    st.success(f"✅ {len(br['instant_blocks'])} accounts instantly blocked via learned signals, {br['remaining_count']} accounts required full graph analysis — demonstrating adaptive learning speed.")

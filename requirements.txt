@@ -6,3 +6,5 @@ streamlit
 pyvis
 anthropic
 fpdf2
+plotly
+numpy

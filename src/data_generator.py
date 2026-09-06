@@ -75,6 +75,61 @@ def generate_dataset(seed=42):
     df = pd.DataFrame(customers)
     return df
 
+def generate_batch(batch_size=50, signal_denylist=None, seed=None):
+    """
+    Generate a small batch of new synthetic customers.
+    ~10% will deliberately reuse a signal from the denylist (repeat offenders).
+    """
+    if seed:
+        Faker.seed(seed)
+        random.seed(seed)
+    fake = Faker()
+    
+    customers = []
+    denylist_matches = []
+    denylist_list = list(signal_denylist) if signal_denylist else []
+    
+    repeat_count = max(1, int(batch_size * 0.1)) if denylist_list else 0
+    
+    # Generate repeat offenders first
+    for i in range(repeat_count):
+        signal_type, signal_value = random.choice(denylist_list)
+        record = {
+            'customer_id': fake.uuid4(),
+            'name': fake.name(),
+            'email': fake.email(),
+            'device_id': fake.uuid4(),
+            'ip_subnet': fake.ipv4_private(network=False),
+            'card_fingerprint': fake.credit_card_number(),
+            'shipping_address': fake.address().replace('\n', ', '),
+            'is_ring_member': True  # They are actually repeat offenders
+        }
+        # Inject the denylisted signal
+        record[signal_type] = signal_value
+        customers.append(record)
+        denylist_matches.append({
+            'customer_id': record['customer_id'],
+            'name': record['name'],
+            'matched_signal_type': signal_type,
+            'matched_signal_value': signal_value
+        })
+    
+    # Generate clean new accounts
+    for _ in range(batch_size - repeat_count):
+        customers.append({
+            'customer_id': fake.uuid4(),
+            'name': fake.name(),
+            'email': fake.email(),
+            'device_id': fake.uuid4(),
+            'ip_subnet': fake.ipv4_private(network=False),
+            'card_fingerprint': fake.credit_card_number(),
+            'shipping_address': fake.address().replace('\n', ', '),
+            'is_ring_member': False
+        })
+    
+    random.shuffle(customers)
+    return pd.DataFrame(customers), denylist_matches
+
 if __name__ == "__main__":
     print("Generating synthetic dataset...")
     df = generate_dataset()

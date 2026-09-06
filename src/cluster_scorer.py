@@ -36,6 +36,10 @@ def score_clusters(G: nx.Graph, auto_flag_threshold: float = 2.5) -> List[Dict[s
             all_shared_signals = set()
             for u, v, d in subgraph.edges(data=True):
                 all_shared_signals.update(d['shared_signals'])
+            
+            # Compute hub node via betweenness centrality
+            centrality = nx.betweenness_centrality(subgraph, weight='weight')
+            hub_node_id = max(centrality, key=centrality.get) if centrality else list(comp)[0]
                 
             scored_clusters.append({
                 'cluster_id': f"C-{i+1}",
@@ -46,6 +50,7 @@ def score_clusters(G: nx.Graph, auto_flag_threshold: float = 2.5) -> List[Dict[s
                 'confidence_tier': tier,
                 'recommended_action': action,
                 'shared_signals': list(all_shared_signals),
+                'hub_node_id': hub_node_id,
                 # Storing subgraph reference for later deep-dives if needed
                 'subgraph': subgraph
             })
