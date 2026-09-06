@@ -79,7 +79,7 @@ with st.sidebar.form("detection_controls"):
     auto_flag_threshold = st.slider("Auto-Flag Density", 1.0, 5.0, 2.5, step=0.1)
 
     st.header("Adversarial Stress Test")
-    simulate_evasion = st.toggle("🥷 Simulate Ring Evasion", value=False, help="Simulate a sophisticated attack where fraudsters actively scramble their IP subnets and Device IDs to evade detection.")
+    simulate_evasion = st.checkbox("🥷 Simulate Ring Evasion", value=False, help="Simulate a sophisticated attack where fraudsters actively scramble their IP subnets and Device IDs to evade detection.")
 
     re_run_clicked = st.form_submit_button("🚀 Re-run Detection Engine", use_container_width=True)
 
