@@ -17,11 +17,13 @@ from evaluation import evaluate_performance
 # Configuration
 st.set_page_config(page_title="GraphSentinel AI", layout="wide", page_icon="🛡️")
 
-# Initialize Session State for Human Overrides & Audit Log
+# Initialize Session State for Human Overrides, Audit Log & Explanation Cache
 if 'human_overrides' not in st.session_state:
     st.session_state.human_overrides = {}
 if 'audit_log' not in st.session_state:
     st.session_state.audit_log = []
+if 'explanations' not in st.session_state:
+    st.session_state.explanations = {}
 
 def log_action(cluster_id, action, density, signals):
     st.session_state.audit_log.append({
@@ -66,19 +68,20 @@ st.markdown("""
 st.sidebar.title("🛡️ GraphSentinel AI")
 st.sidebar.markdown("Live Simulation Controls")
 
-st.sidebar.header("Signal Weights")
-weight_card = st.sidebar.slider("Card Fingerprint", 0.0, 5.0, 4.0, step=0.5)
-weight_device = st.sidebar.slider("Device ID", 0.0, 5.0, 3.0, step=0.5)
-weight_shipping = st.sidebar.slider("Shipping Address", 0.0, 5.0, 2.0, step=0.5)
-weight_ip = st.sidebar.slider("IP Subnet", 0.0, 5.0, 1.0, step=0.5)
+with st.sidebar.form("detection_controls"):
+    st.header("Signal Weights")
+    weight_card = st.slider("Card Fingerprint", 0.0, 5.0, 4.0, step=0.5)
+    weight_device = st.slider("Device ID", 0.0, 5.0, 3.0, step=0.5)
+    weight_shipping = st.slider("Shipping Address", 0.0, 5.0, 2.0, step=0.5)
+    weight_ip = st.slider("IP Subnet", 0.0, 5.0, 1.0, step=0.5)
 
-st.sidebar.header("Detection Thresholds")
-auto_flag_threshold = st.sidebar.slider("Auto-Flag Density", 1.0, 5.0, 2.5, step=0.1)
+    st.header("Detection Thresholds")
+    auto_flag_threshold = st.slider("Auto-Flag Density", 1.0, 5.0, 2.5, step=0.1)
 
-st.sidebar.header("Adversarial Stress Test")
-simulate_evasion = st.sidebar.toggle("🥷 Simulate Ring Evasion", value=False, help="Simulate a sophisticated attack where fraudsters actively scramble their IP subnets and Device IDs to evade detection.")
+    st.header("Adversarial Stress Test")
+    simulate_evasion = st.toggle("🥷 Simulate Ring Evasion", value=False, help="Simulate a sophisticated attack where fraudsters actively scramble their IP subnets and Device IDs to evade detection.")
 
-re_run_clicked = st.sidebar.button("🚀 Re-run Detection Engine", use_container_width=True)
+    re_run_clicked = st.form_submit_button("🚀 Re-run Detection Engine", use_container_width=True)
 
 signal_weights = {
     'card_fingerprint': weight_card,
@@ -134,7 +137,8 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("What-If Business Impact")
 st.sidebar.markdown("<small>Estimated Rupee trade-off at current threshold</small>", unsafe_allow_html=True)
 
-fraud_savings = metrics['recall'] * 39 * 25000  # Assume 39 real frauds, avg ₹25,000 saved per caught ring member
+actual_ring_count = int(df['is_ring_member'].sum())
+fraud_savings = metrics['recall'] * actual_ring_count * 25000  # Dynamically derived ring count × avg ₹25,000 saved
 review_cost = metrics['false_positive_cost_inr']
 net_impact = fraud_savings - review_cost
 
@@ -338,10 +342,11 @@ else:
                     
             with col2:
                 st.markdown("**AI Fraud Analyst Report**")
-                # Generate AI Explanation on demand to save API costs, or pull from cache
-                if 'explanation' not in selected_cluster:
+                # Cache explanations in session_state so API doesn't re-fire on every rerun
+                if selected_cluster_id not in st.session_state.explanations:
                     with st.spinner("Querying AI Analyst..."):
-                        selected_cluster['explanation'] = explain_cluster(selected_cluster)
+                        st.session_state.explanations[selected_cluster_id] = explain_cluster(selected_cluster)
+                selected_cluster['explanation'] = st.session_state.explanations[selected_cluster_id]
                 
                 # Check if it's JSON or plaintext (fallback)
                 try:
