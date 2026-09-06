@@ -68,20 +68,23 @@ st.markdown("""
 st.sidebar.title("🛡️ GraphSentinel AI")
 st.sidebar.markdown("Live Simulation Controls")
 
-with st.sidebar.form("detection_controls"):
-    st.header("Signal Weights")
-    weight_card = st.slider("Card Fingerprint", 0.0, 5.0, 4.0, step=0.5)
-    weight_device = st.slider("Device ID", 0.0, 5.0, 3.0, step=0.5)
-    weight_shipping = st.slider("Shipping Address", 0.0, 5.0, 2.0, step=0.5)
-    weight_ip = st.slider("IP Subnet", 0.0, 5.0, 1.0, step=0.5)
+st.sidebar.header("Signal Weights")
+weight_card = st.sidebar.slider("Card Fingerprint", 0.0, 5.0, 4.0, step=0.5)
+weight_device = st.sidebar.slider("Device ID", 0.0, 5.0, 3.0, step=0.5)
+weight_shipping = st.sidebar.slider("Shipping Address", 0.0, 5.0, 2.0, step=0.5)
+weight_ip = st.sidebar.slider("IP Subnet", 0.0, 5.0, 1.0, step=0.5)
 
-    st.header("Detection Thresholds")
-    auto_flag_threshold = st.slider("Auto-Flag Density", 1.0, 5.0, 2.5, step=0.1)
+st.sidebar.header("Detection Thresholds")
+auto_flag_threshold = st.sidebar.slider("Auto-Flag Density", 1.0, 5.0, 2.5, step=0.1)
 
-    st.header("Adversarial Stress Test")
-    simulate_evasion = st.checkbox("🥷 Simulate Ring Evasion", value=False, help="Simulate a sophisticated attack where fraudsters actively scramble their IP subnets and Device IDs to evade detection.")
+st.sidebar.header("Adversarial Stress Test")
+simulate_evasion = st.sidebar.checkbox("🥷 Simulate Ring Evasion", value=False, help="Simulate a sophisticated attack where fraudsters actively scramble their IP subnets and Device IDs to evade detection.")
 
-    re_run_clicked = st.form_submit_button("🚀 Re-run Detection Engine", use_container_width=True)
+if st.sidebar.button("🚀 Re-run Detection Engine", use_container_width=True):
+    # Clear cached explanations and human overrides for a fresh analysis pass
+    st.session_state.explanations = {}
+    st.session_state.human_overrides = {}
+    st.rerun()
 
 signal_weights = {
     'card_fingerprint': weight_card,
